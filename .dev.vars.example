@@ -1,0 +1,4 @@
+# Copy to .dev.vars (it is in .gitignore) and fill in.
+ANTHROPIC_API_KEY=sk-ant-...
+ADMIN_USER=admin
+ADMIN_PASS=choose-something-long

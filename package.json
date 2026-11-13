@@ -1,0 +1,31 @@
+{
+  "name": "hearout",
+  "version": "0.1.0",
+  "description": "An AI that runs the intake interview instead of a form.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "preview": "wrangler dev",
+    "deploy": "nuxt build && wrangler deploy",
+    "typecheck": "nuxt typecheck",
+    "db:local": "wrangler d1 migrations apply hearout --local",
+    "db:seed": "wrangler d1 execute hearout --local --file examples/seed.sql",
+    "db:remote": "wrangler d1 migrations apply hearout --remote"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
+    "nuxt": "^4.6.4",
+    "vue": "^3.5.45"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261112.1",
+    "@tailwindcss/vite": "^4.3.5",
+    "tailwindcss": "^4.3.5",
+    "typescript": "^5.9.3",
+    "vue-tsc": "^3.3.14",
+    "wrangler": "^4.160.1"
+  }
+}
