@@ -132,8 +132,15 @@ async function toggle(participant: Participant) {
   }
   openCode.value = participant.code
   lines.value = []
-  const data = await $fetch<{ lines: Line[] }>('/api/admin/conversation', { query: { code: participant.code } })
-  lines.value = data.lines
+  try {
+    const data = await $fetch<{ lines: Line[] }>('/api/admin/conversation', { query: { code: participant.code } })
+    // A slow answer for someone you already clicked away from must not land under the next name.
+    if (openCode.value === participant.code) lines.value = data.lines
+  } catch (caught) {
+    if (openCode.value !== participant.code) return
+    openCode.value = ''
+    notice.value = message(caught)
+  }
 }
 
 async function regenerate(participant: Participant) {

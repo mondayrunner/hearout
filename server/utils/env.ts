@@ -43,7 +43,8 @@ export function requireAdmin(event: H3Event): void {
   if (scheme === 'Basic' && value) {
     let decoded = ''
     try {
-      decoded = atob(value)
+      // Browsers send the credentials as UTF-8, and atob alone would read those bytes as Latin-1.
+      decoded = new TextDecoder().decode(Uint8Array.from(atob(value), (char) => char.charCodeAt(0)))
     } catch {
       decoded = ''
     }

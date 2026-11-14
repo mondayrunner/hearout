@@ -108,8 +108,15 @@ export async function askClaude<T>(options: {
   effort: 'low' | 'medium' | 'high'
   maxTokens: number
   timeoutMs?: number
+  /** No retries of any kind, so the call never takes longer than `timeoutMs`. For work with a hard deadline. */
+  singleAttempt?: boolean
 }): Promise<Result<T>> {
-  const client = new Anthropic({ apiKey: options.apiKey, timeout: options.timeoutMs ?? 30_000, maxRetries: 1 })
+  const client = new Anthropic({
+    apiKey: options.apiKey,
+    timeout: options.timeoutMs ?? 30_000,
+    maxRetries: options.singleAttempt ? 0 : 1,
+  })
+  const extraAttempts = options.singleAttempt ? 0 : EXTRA_ATTEMPTS
 
   // Two cache breakpoints: the system prompt, and the last message of the history. The turn note
   // goes in as a system message at the very end. Putting it in the system prompt instead would
@@ -175,7 +182,7 @@ export async function askClaude<T>(options: {
         model: response.model ?? MODEL,
       }
     } catch (error: unknown) {
-      if (error instanceof UnusableAnswer && attempt < EXTRA_ATTEMPTS) {
+      if (error instanceof UnusableAnswer && attempt < extraAttempts) {
         console.warn('[claude] retrying:', error.message)
         continue
       }

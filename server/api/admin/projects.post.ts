@@ -12,7 +12,9 @@ function readTopicLines(text: unknown): Topic[] {
   const seen = new Set<string>()
   const topics: Topic[] = []
   for (const line of text.split('\n')) {
-    const label = clean(line.replace(/^[-*\d.)\s]+/, ''), 120)
+    // Strips a list marker: a dash, a star, a bullet, or a number followed by a dot or bracket.
+    // A number that belongs to the topic, as in "3D printing" or "24/7 support", stays.
+    const label = clean(line.replace(/^\s*(?:[-*•]\s*|\d+[.)]\s+)/, ''), 120)
     if (!label) continue
     // Cut long labels on a word boundary, so a key never ends halfway through a word.
     const full = slugify(label, 80)
@@ -25,6 +27,8 @@ function readTopicLines(text: unknown): Topic[] {
   }
   return topics.slice(0, 20)
 }
+
+const RESERVED_SLUGS = new Set(['admin', 'api'])
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{
@@ -47,7 +51,9 @@ export default defineEventHandler(async (event) => {
   }
 
   const database = useDb(event)
-  const base = slugify(`${organisation}-${name}`, 40) || 'project'
+  // A slug that equals a route of the app would put the participant links behind that route.
+  const plain = slugify(`${organisation}-${name}`, 40) || 'project'
+  const base = RESERVED_SLUGS.has(plain) ? `project-${plain}` : plain
   let slug = base
   for (let n = 2; n < 50; n++) {
     const exists = await database.prepare('SELECT 1 FROM projects WHERE slug = ?').bind(slug).first()

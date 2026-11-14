@@ -13,6 +13,8 @@ export async function makeSummary(options: {
   participantId: string
   apiKey: string
   timeoutMs?: number
+  /** One attempt only, for the background run that has to finish inside a fixed window. */
+  singleAttempt?: boolean
 }): Promise<boolean> {
   const { database, participantId, apiKey } = options
 
@@ -67,6 +69,7 @@ export async function makeSummary(options: {
       effort: 'medium',
       maxTokens: 16000,
       timeoutMs: options.timeoutMs,
+      singleAttempt: options.singleAttempt,
     })
 
     if (!result.ok) {
@@ -75,10 +78,6 @@ export async function makeSummary(options: {
     }
 
     const { data, usage, model } = result
-    const previous = await database
-      .prepare('SELECT COALESCE(MAX(version), 0) AS version FROM summaries WHERE participant_id = ?')
-      .bind(participant.id)
-      .first<{ version: number }>()
     const summaryId = newId('sum')
 
     await database.batch([
@@ -86,12 +85,14 @@ export async function makeSummary(options: {
         .prepare(
           `INSERT INTO summaries (id, participant_id, version, in_one_sentence, watch_out, json, markdown, model,
              input_tokens, cache_write_tokens, cache_read_tokens, output_tokens, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?1, ?2, (SELECT COALESCE(MAX(version), 0) + 1 FROM summaries WHERE participant_id = ?2),
+                   ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
         )
+        // The version is worked out inside the insert, so two runs at the same time (the
+        // background one and the admin button) get two versions instead of one collision.
         .bind(
           summaryId,
           participant.id,
-          (previous?.version ?? 0) + 1,
           data.in_one_sentence,
           data.watch_out,
           JSON.stringify(data),
@@ -125,8 +126,16 @@ export async function makeSummary(options: {
 
 async function markFailed(database: D1Database, participantId: string, error: string): Promise<void> {
   try {
+    // A failed attempt does not undo an earlier summary: the status only becomes 'failed' while
+    // there is nothing to read. The error is recorded either way.
     await database
-      .prepare("UPDATE participants SET summary_status = 'failed', summary_error = ? WHERE id = ?")
+      .prepare(
+        `UPDATE participants
+            SET summary_status = CASE WHEN EXISTS (SELECT 1 FROM summaries WHERE participant_id = ?2)
+                                      THEN 'done' ELSE 'failed' END,
+                summary_error = ?1
+          WHERE id = ?2`,
+      )
       .bind(error.slice(0, 500), participantId)
       .run()
   } catch (logError) {

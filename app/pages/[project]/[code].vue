@@ -82,6 +82,9 @@ async function begin() {
   if (!name.value) return
   started.value = true
   await send('')
+  // Without a first question there is nothing to answer: back to the start screen, where the
+  // error is shown and Start tries again.
+  if (!messages.value.length) started.value = false
 }
 
 onMounted(scrollDown)

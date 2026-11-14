@@ -13,13 +13,15 @@ A **project** is one round of interviews. It holds the brief: what you want to k
 every conversation, written as an instruction to the interviewer. The brief travels along as the
 system prompt and is cached, so it can be long without getting expensive.
 
-A **participant** belongs to a project and has a four-character code. The link is
-`/<project>/<code>`, for example `/example/demo`. There is no login: the code is the key. Codes
-have no 0, o, 1 or l, because people read them aloud and type them over.
+A **participant** belongs to a project and has an eight-character code. The link is
+`/<project>/<code>`, for example `/example/demo` in the seed. There is no login: the code is the
+key, so it is long enough that guessing one is not realistic. Codes have no 0, o, 1 or l, because
+people read them aloud and type them over.
 
-The model decides the order of the questions and how to follow up. The server decides when it is
-over: after `max_turns` questions (twelve by default) the conversation ends regardless. Freedom in
-the conversation, no freedom in the outcome.
+The model decides the order of the questions and how to follow up, and it may finish early. The
+server decides when it is over: after `max_turns` questions (twelve by default) the model gets one
+closing turn to say thanks, and the conversation ends regardless. Freedom in the conversation, no
+freedom in the outcome.
 
 When someone finishes, the server makes the summary in the background: one sentence, one point per
 topic, and one thing to watch out for. If the summary fails, the admin shows that and you make it
@@ -152,15 +154,24 @@ The stack is Nuxt 4, Tailwind 4, Cloudflare Workers with D1, and the Anthropic S
 - **The turn number is not in the system prompt.** It goes in as a system message after the
   history. That keeps the cached part identical from turn to turn.
 - **Input is limited and filtered.** An answer has at most 500 characters, and a filter stops
-  email addresses and phone-like numbers. The filter is a starting point, not a complete check
-  for personal data.
+  email addresses and numbers written like a phone number. Amounts, ranges, dates and order
+  numbers pass, because the interviewer asks for numbers. The filter is a starting point, not a
+  complete check for personal data, and it will miss some phone numbers.
+- **The link is the only key.** Anyone with the code can read a running conversation and answer
+  in it. The endpoints have no rate limit of their own: add one, for example a Cloudflare
+  rate limiting rule on `/api/chat` and `/api/participant/*`, before you send links widely.
 - **A finished conversation is closed.** The link no longer shows the transcript, because links
   get forwarded. You read it in the admin.
 - **A conversation keeps the brief it started under.** Editing a project does not change
   conversations that are already running.
-- **The summary runs in the background.** On Cloudflare that work gets about thirty seconds after
-  the response. A summary that runs out of time is marked as failed, and the admin button makes it
-  again inside a normal request.
+- **The summary runs in the background.** On Cloudflare that work gets thirty seconds after the
+  response, so the background run is one attempt with a time-out of 22 seconds. A summary that
+  runs out of time is marked as failed, and the admin button makes it again inside a normal
+  request. If the Worker is stopped before it can record anything, the admin reports the summary
+  as failed after two minutes.
+- **Two tabs on one link do not split the conversation.** The second request fails on a unique
+  index and the page asks for a reload. That check comes after the model call, so the losing
+  request is paid for. Claiming the turn in the database first would avoid that.
 - **Refusals fall back to another model.** The API call sets `fallbacks: "default"`, a beta
   feature of the Anthropic API. Remove the two marked lines in `server/utils/claude.ts` if you do
   not want that.

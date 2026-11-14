@@ -2,17 +2,27 @@
 //
 // The promise to a participant is that the conversation is about the work, not about people.
 // So the filter looks for what identifies a person, instead of locking the input down.
-import type { D1Database } from '@cloudflare/workers-types'
-
 export const MAX_INPUT = 500
 
 const EMAIL = /[\w.+-]+@[\w-]+\.[\w.]+/
-const PHONE_LIKE = /\+?\d[\d\s().-]{7,}\d/g
+// Dates are taken out first, so "01-02-2026 12 people" is not read as a number to call.
+const DATE = /\b(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{4})\b/g
+// A number that starts with + or 0, written with at most two separators between digits. Amounts,
+// ranges ("10.000 - 20.000") and order numbers do not start that way, and an interviewer who asks
+// for numbers must be able to get them.
+const PHONE_PREFIXED = /(?<![\d.,])(?:\+\d|\(?0)(?:[ ().-]{0,2}\d){7,14}(?!\d)/g
+// The North American way of writing: 555-123-4567 or (555) 123 4567.
+const PHONE_GROUPED = /(?<![\d.,])\(?\d{3}\)?[ .-]\d{3}[ .-]\d{4}(?!\d)/
 
-/** A starting point, not a full PII filter: email addresses and phone-like runs of nine or more digits. */
+/**
+ * A starting point, not a full PII filter: email addresses and numbers written like a phone
+ * number. It leans towards letting a number through, so it will miss some.
+ */
 export function containsPersonalData(text: string): boolean {
   if (EMAIL.test(text)) return true
-  return (text.match(PHONE_LIKE) ?? []).some((run) => run.replace(/\D/g, '').length >= 9)
+  const withoutDates = text.replace(DATE, ' ')
+  if (PHONE_GROUPED.test(withoutDates)) return true
+  return (withoutDates.match(PHONE_PREFIXED) ?? []).some((run) => run.replace(/\D/g, '').length >= 9)
 }
 
 /** For short fields such as a code or a name: all whitespace becomes one space. */
@@ -46,23 +56,18 @@ export function slugify(text: string, max: number): string {
 /** No 0, o, 1 or l: codes get read aloud and typed over. */
 const ALPHABET = 'abcdefghijkmnpqrstuvwxyz23456789'
 
-export function newCode(length = 4): string {
+/**
+ * The code is the only key to a conversation, so it has to be too long to guess: eight characters
+ * from 32 gives about a trillion possibilities. The alphabet has 32 letters, so a byte modulo 32
+ * is evenly spread.
+ */
+export function newCode(length = 8): string {
   const bytes = crypto.getRandomValues(new Uint8Array(length))
   return Array.from(bytes, (byte) => ALPHABET[byte % ALPHABET.length]).join('')
 }
 
 export function newId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`
-}
-
-/** Codes are unique across all projects, because the code alone identifies the conversation. */
-export async function newUniqueCode(database: D1Database): Promise<string> {
-  for (let attempt = 0; attempt < 12; attempt++) {
-    const code = newCode(attempt < 8 ? 4 : 6)
-    const exists = await database.prepare('SELECT 1 FROM participants WHERE code = ?').bind(code).first()
-    if (!exists) return code
-  }
-  throw createError({ statusCode: 500, statusMessage: 'No free code found' })
 }
 
 /** A JSON list of strings from the database; anything else becomes an empty list. */

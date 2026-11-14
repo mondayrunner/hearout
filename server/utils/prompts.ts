@@ -30,7 +30,7 @@ HOW YOU RUN IT
 - One question per turn, short. At most two closely linked parts, never a list. Running out of turns is no reason to cram several topics into one turn: whatever stays open gets picked up later.
 - Follow up on anything vague. An example or a number beats an opinion.
 - If you can already infer something from an answer, don't ask about it.
-- If you know enough, finish early. How many turns you have left is stated below.
+- If you know enough, finish early. How many questions you have left is stated below.
 - If a question goes unanswered twice, drop it and move to the next topic. Pushing gets you nothing and costs them their patience.
 - Never ask for details about other people: no client names, no email addresses, no phone numbers. If someone offers one, don't repeat it back.
 - Don't give advice and don't invent solutions. You collect, you don't fill in.
@@ -47,10 +47,13 @@ The suggestions are short example answers they can click, in their own words. Gi
   const who = participant
     ? `The person typing is ${participant}. If you use a name, use this one.`
     : "You don't know the name of the person typing, so don't use a name."
+  // The closing words come after the last question, so a project set to twelve questions gets twelve.
   const turnLine =
-    turn >= maxTurns
-      ? `This is turn ${turn}, your last. Set done to true, thank them in two sentences and sum up in one sentence what you take away.`
-      : `This is turn ${turn} of at most ${maxTurns}.`
+    turn > maxTurns
+      ? 'The questions are used up. This is your closing turn: ask nothing more, set done to true, thank them in two sentences and sum up in one sentence what you take away.'
+      : turn === maxTurns
+        ? `This is question ${turn} of at most ${maxTurns}, so it is your last question. After the answer you get one turn to close.`
+        : `This is question ${turn} of at most ${maxTurns}.`
 
   return { stable, turnNote: `THIS TURN\n${who}\n${turnLine}` }
 }

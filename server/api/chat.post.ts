@@ -1,7 +1,7 @@
 // One turn of the conversation: check the input, load the history, ask Claude, store everything.
 //
-// The server decides when it is over. The model may set `done`, but on the last turn the server
-// sets it regardless: freedom in the conversation, no freedom in the outcome.
+// The server decides when it is over. The model may set `done`, but after the last question the
+// server sets it regardless: freedom in the conversation, no freedom in the outcome.
 import type { D1PreparedStatement } from '@cloudflare/workers-types'
 import { askClaude, conversationSchema, type ConversationAnswer, type Turn } from '../utils/claude'
 import { conversationPrompt, START_LINE } from '../utils/prompts'
@@ -90,6 +90,12 @@ export default defineEventHandler(async (event) => {
     }
   }
 
+  // Without a question there is nothing to answer. This happens when the opening request failed
+  // and the page sends text anyway; storing it would give the model an answer to nothing.
+  if (message && asked === 0) {
+    throw createError({ statusCode: 409, statusMessage: 'The conversation has not started yet. Reload the page.' })
+  }
+
   // On the first question, record the brief and the limit this conversation runs under.
   if (!participant.brief_at_start) {
     await database
@@ -107,8 +113,9 @@ export default defineEventHandler(async (event) => {
   }
   if (message) turns.push({ role: 'user', content: message })
 
+  // `maxTurns` questions, then one closing turn on top of that.
   const turn = asked + 1
-  const lastTurn = turn >= maxTurns
+  const closing = turn > maxTurns
   const prompt = conversationPrompt({
     brief: participant.brief_at_start,
     organisation: participant.organisation,
@@ -136,7 +143,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const done = lastTurn || answer.data.done === true
+  const done = closing || answer.data.done === true
   const suggestions = done ? [] : answer.data.suggestions.slice(0, 3)
   const { usage, model } = answer
 
@@ -179,7 +186,7 @@ export default defineEventHandler(async (event) => {
                end_reason = ?3, summary_status = 'pending'
              WHERE id = ?1`,
           )
-          .bind(participant.id, now, lastTurn ? 'max_turns' : 'model')
+          .bind(participant.id, now, closing ? 'max_turns' : 'model')
       : database
           .prepare("UPDATE participants SET status = 'active', started_at = COALESCE(started_at, ?2) WHERE id = ?1")
           .bind(participant.id, now),
@@ -189,20 +196,25 @@ export default defineEventHandler(async (event) => {
     await database.batch(statements)
   } catch (error) {
     // The unique index on (participant, turn, role) makes the second of two simultaneous turns
-    // fail as a whole. A message beats a conversation that splits in two.
+    // fail as a whole. A message beats a conversation that splits in two. The model call of the
+    // losing request is already paid for by then; claiming the turn first would avoid that.
     if (String(error).includes('UNIQUE')) {
       throw createError({
         statusCode: 409,
-        statusMessage: 'Someone just answered on this link at the same time. Reload the page to continue.',
+        statusMessage: 'This link is open in two places at the same time. Reload the page to continue.',
       })
     }
     throw error
   }
 
   if (done) {
-    // In the background, so the participant does not wait for the summary. If it fails, the
-    // participant row says so and the admin can make it again.
-    event.waitUntil(makeSummary({ database, participantId: participant.id, apiKey }))
+    // In the background, so the participant does not wait for the summary. Cloudflare stops
+    // background work 30 seconds after the response, so this is one attempt with a time-out well
+    // inside that window: a summary that is too slow still gets to record that it failed, and
+    // the admin button makes it again inside a normal request.
+    event.waitUntil(
+      makeSummary({ database, participantId: participant.id, apiKey, timeoutMs: 22_000, singleAttempt: true }),
+    )
   }
 
   return { reply: answer.data.reply, done, suggestions, turn, maxTurns }

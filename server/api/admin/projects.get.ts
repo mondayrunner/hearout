@@ -1,6 +1,8 @@
 // The admin overview: projects with their participants, status, summary and token usage.
 import { useDb } from '../../utils/env'
 
+const STALE_AFTER_MS = 2 * 60 * 1000
+
 export default defineEventHandler(async (event) => {
   const database = useDb(event)
   const origin = getRequestURL(event).origin
@@ -57,7 +59,14 @@ export default defineEventHandler(async (event) => {
       output_tokens: number
     }>()
 
-  const rows = participants.results ?? []
+  // If the Worker is stopped before the background summary can record its outcome, the status
+  // stays 'pending' forever. Past two minutes it is reported as failed, so the button appears.
+  const now = Date.now()
+  const rows = (participants.results ?? []).map((row) =>
+    row.summary_status === 'pending' && row.finished_at && now - row.finished_at > STALE_AFTER_MS
+      ? { ...row, summary_status: 'failed' as const, summary_error: 'The summary did not finish in time. Make it again.' }
+      : row,
+  )
 
   return {
     projects: (projects.results ?? []).map((project) => ({
